@@ -3,13 +3,16 @@ import argparse
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
 from prompts import system_prompt
+from call_function import available_functions, call_function
 
 
 def generate_content(client, messages):
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=messages,
+        tools=available_functions,
         temperature=0,
     )
 
@@ -59,15 +62,37 @@ def main():
         },
     ]
 
-    response = generate_content(client, messages)
+    for _ in range(20):
+        response = generate_content(client, messages)
 
-    if args.verbose:
-        print(f"User prompt: {args.user_prompt}")
-        print(f"Prompt tokens: {response.usage.prompt_tokens}")
-        print(f"Response tokens: {response.usage.completion_tokens}")
+        message = response.choices[0].message
 
-    print("Response:")
-    print(response.choices[0].message.content)
+        messages.append(message)
+
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                result_message = call_function(
+                    tool_call,
+                    verbose=args.verbose,
+                )
+
+                if not result_message["content"]:
+                    raise RuntimeError(
+                        "Tool call returned empty content"
+                    )
+
+                messages.append(result_message)
+
+                if args.verbose:
+                    print(
+                        f"-> {result_message['content']}"
+                    )
+        else:
+            print("Final response:")
+            print(message.content)
+            return
+
+    print("Error: Maximum iterations reached")
 
 
 if __name__ == "__main__":
